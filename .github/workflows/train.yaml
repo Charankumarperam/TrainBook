@@ -33,4 +33,4 @@ jobs:
         run: |
           curl -v --fail -u "${{ secrets.TOMCAT_DEV_USER }}:${{ secrets.TOMCAT_DEV_PASSWORD }}" \
           -T target/TrainBook-1.0.0-SNAPSHOT.war \
-          "http://${{ secrets.TOMCAT_DEV_HOST }}/manager/text/deploy?path=/TrainBook&update=true"
+          "http://${{ secrets.TOMCAT_DEV_HOST }}:8080/manager/text/deploy?path=/TrainBook&update=true"
