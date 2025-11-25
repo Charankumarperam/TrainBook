@@ -7,7 +7,7 @@ on:
   push:
     branches: 
      - master
-
+     
 # Define environment variables to use in the pom.xml
 env:
   NEXUS_URL: ${{ secrets.NEXUS_URL }}
