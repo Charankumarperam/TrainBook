@@ -4,7 +4,7 @@ on:
   push:
     branches:
       - master
-
+      
 env:
   NEXUS_URL: ${{ secrets.NEXUS_URL }}
   TOMCAT_URL: ${{ secrets.TOMCAT_URL }}
