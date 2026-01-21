@@ -1,39 +1,83 @@
-# Docker
-# Build and push an image to Azure Container Registry
-# https://docs.microsoft.com/azure/devops/pipelines/languages/docker
-
 trigger:
 - main
-
-resources:
-- repo: self
-
+pool:
+  vmImage: 'windows-latest'
 variables:
-  # Container registry service connection established during pipeline creation
-  dockerRegistryServiceConnection: '11e36469-c751-4859-ab56-bf0cce988f6a'
-  imageRepository: 'charankumarperamtrainbook'
-  containerRegistry: 'contaner.azurecr.io'
-  dockerfilePath: 'Dockerfile'
-  tag: '$(Build.BuildId)'
-
-  # Agent VM image name
-  vmImageName: 'ubuntu-latest'
-
-stages:
-- stage: Build
-  displayName: Build and push stage
-  jobs:
-  - job: Build
-    displayName: Build
-    pool:
-      vmImage: $(vmImageName)
-    steps:
-    - task: Docker@2
-      displayName: Build and push an image to container registry
-      inputs:
-        command: buildAndPush
-        repository: $(imageRepository)
-        dockerfile: $(dockerfilePath)
-        containerRegistry: $(dockerRegistryServiceConnection)
-        tags: |
-          $(tag)
+- group: aws-windows-vars
+steps:
+# =========================
+# BUILD FRONTEND
+# =========================
+- task: NodeTool@0
+  inputs:
+    versionSpec: '18.x'
+  displayName: 'Install Node.js'
+- script: |
+    cd frontend
+    npm install
+    npm run build
+  displayName: 'Build Vue frontend'
+# =========================
+# BUILD BACKEND
+# =========================
+- script: |
+    cd backend
+    npm install
+  displayName: 'Install backend dependencies'
+# =========================
+# PUBLISH ARTIFACTS
+# =========================
+- task: PublishBuildArtifacts@1
+  inputs:
+    PathtoPublish: 'frontend/dist'
+    ArtifactName: 'frontend'
+  displayName: 'Publish frontend'
+- task: PublishBuildArtifacts@1
+  inputs:
+    PathtoPublish: 'backend'
+    ArtifactName: 'backend'
+  displayName: 'Publish backend'
+# =========================
+# DEPLOY TO WINDOWS EC2
+# =========================
+- task: PowerShell@2
+  displayName: 'Deploy to AWS Windows EC2'
+  inputs:
+    targetType: 'inline'
+    script: |
+      $secpasswd = ConvertTo-SecureString "$(EC2_PASS)" -AsPlainText -Force
+      $cred = New-Object System.Management.Automation.PSCredential ("$(EC2_USER)", $secpasswd)
+      $session = New-PSSession `
+        -ComputerName $(EC2_HOST) `
+        -Credential $cred `
+        -Authentication Basic
+      # FRONTEND DEPLOY
+      Invoke-Command -Session $session -ScriptBlock {
+          if (Test-Path "$(FRONTEND_PATH)") {
+              Remove-Item "$(FRONTEND_PATH)\*" -Recurse -Force
+          }
+      }
+      Copy-Item `
+        -Path "$(Pipeline.Workspace)\frontend\*" `
+        -Destination "$(FRONTEND_PATH)" `
+        -ToSession $session `
+        -Recurse -Force
+      # BACKEND DEPLOY
+      Invoke-Command -Session $session -ScriptBlock {
+          if (Test-Path "$(BACKEND_PATH)") {
+              Remove-Item "$(BACKEND_PATH)\*" -Recurse -Force
+          }
+      }
+      Copy-Item `
+        -Path "$(Pipeline.Workspace)\backend\*" `
+        -Destination "$(BACKEND_PATH)" `
+        -ToSession $session `
+        -Recurse -Force
+      # BACKEND START/RESTART
+      Invoke-Command -Session $session -ScriptBlock {
+          cd "$(BACKEND_PATH)"
+          pm2 delete backend-api -ErrorAction SilentlyContinue
+          pm2 start server.js --name backend-api
+          pm2 save
+      }
+      Remove-PSSession $session
